@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Server runtime artifacts
+server.log
+server_run.log
+*.log
+
+# Editors
+.idea/
+.vscode/

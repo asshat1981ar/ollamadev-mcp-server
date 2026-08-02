@@ -237,6 +237,24 @@ _TOOL_CATALOG: list[dict[str, Any]] = [
         "params": {"goal": "", "phase": "", "context": "", "model": "llama3"},
         "example": "MCP_CALL: suggest_next_action | {\"goal\": \"Add a new migration for sprint tables\", \"phase\": \"IMPLEMENTATION\"}",
     },
+    {
+        "name": "get_server_settings",
+        "phase": "META",
+        "params": {},
+        "example": "MCP_CALL: get_server_settings | {}",
+    },
+    {
+        "name": "update_server_settings",
+        "phase": "META",
+        "params": {"settings": {"ollama_url": "http://localhost:11434"}},
+        "example": "MCP_CALL: update_server_settings | {\"settings\": {\"default_cloud_model\": \"claude-sonnet-5-20251001\"}}",
+    },
+    {
+        "name": "reset_server_settings",
+        "phase": "META",
+        "params": {},
+        "example": "MCP_CALL: reset_server_settings | {}",
+    },
 ]
 
 
@@ -268,7 +286,7 @@ def register(mcp: MCPServer) -> None:
         """
         return json.dumps({
             "name": "OllamaDev Toolbox",
-            "version": "0.4.0",
+            "version": "0.5.0",
             "uptime_seconds": round(time.time() - _START, 2),
         })
 
@@ -461,9 +479,10 @@ def _ask_anthropic(system_prompt: str, user_prompt: str, model: str) -> str:
 def _extract_json(raw: str) -> dict[str, Any]:
     """Extract a JSON object from a response that may be wrapped in markdown fences."""
     raw = raw.strip()
-    # Strip markdown code fences if present.
-    if raw.startswith("```"):
-        raw = raw.split("```", 2)[-1]
+    # Strip markdown code fences if present: keep the segment between the first pair.
+    if "```" in raw:
+        parts = raw.split("```")
+        raw = parts[1] if len(parts) >= 2 else raw
         raw = raw.strip()
     try:
         return json.loads(raw)

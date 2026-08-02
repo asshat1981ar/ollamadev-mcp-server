@@ -8,7 +8,7 @@ Connect from OllamaDev: Add Server → URL: http://<host>:5000/mcp
 from mcp.server import MCPServer
 
 from ollamadev_mcp_server.tools import (
-    build, code, dependencies, filesystem, git_tools, memory, meta, observability, patch, sandbox, sprint,
+    build, code, dependencies, filesystem, git_tools, memory, meta, observability, patch, sandbox, settings, sprint,
 )
 
 
@@ -26,6 +26,7 @@ def main() -> None:
     dependencies.register(mcp)
     observability.register(mcp)
     sandbox.register(mcp)
+    settings.register(mcp)
 
     mcp.run(transport="streamable-http", host="0.0.0.0", port=5000)
 
