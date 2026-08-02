@@ -2,7 +2,7 @@
 
 Companion MCP server for the **OllamaDev** Android app, written with the **MCP Python SDK v2 beta**.
 
-It exposes a comprehensive toolbox of **40 tools** that OllamaDev agents can invoke via `MCP_CALL:` directives during every SDLC sprint phase. It also includes an **agentic self-prompt** tool (`suggest_next_action`) that asks a local Ollama model which tool to call next.
+It exposes a comprehensive toolbox of **46 tools** that OllamaDev agents can invoke via `MCP_CALL:` directives during every SDLC sprint phase. It also includes an **agentic self-prompt** tool (`suggest_next_action`) that asks a local Ollama model which tool to call next.
 
 ## Server layout
 
@@ -96,6 +96,12 @@ Override Ollama URL: `OLLAMA_URL=http://localhost:11434 uv run serve`
 | `parse_test_results(gradle_output)` | Parse raw Gradle output into structured JSON | VERIFICATION |
 | `run_lint(module="app")` | Run Android Lint | VERIFICATION |
 | `run_ktlint_detekt(command="ktlint")` | Run ktlint/detekt if installed | VERIFICATION |
+| `run_ktlint(args)` | Run ktlint (default: `app/src/main/java`) | VERIFICATION |
+| `run_detekt(args)` | Run detekt (tries `detekt-cli`, then `detekt`) | VERIFICATION |
+| `parse_test_results_xml(results_dir, raw_xml)` | Parse JUnit XML reports into structured JSON (totals + failure details) | VERIFICATION |
+| `get_coverage_summary(results_dir)` | Parse a JaCoCo XML report into LINE/BRANCH/INSTRUCTION coverage | VERIFICATION / INTEGRATION |
+| `run_instrumented_tests(module, variant, test_filter)` | Run `connectedAndroidTest` on a device/emulator (checks `adb devices` first) | VERIFICATION |
+| `run_screenshot_tests(module, mode, test_filter)` | Roborazzi record/verify screenshot tests on the JVM (no emulator) | VERIFICATION |
 | `get_build_config()` | Read `libs.versions.toml` and Gradle build files | INTEGRATION |
 
 ### Execution sandbox

@@ -124,6 +124,42 @@ _TOOL_CATALOG: list[dict[str, Any]] = [
         "example": "MCP_CALL: run_ktlint_detekt | {\"command\": \"ktlint\"}",
     },
     {
+        "name": "run_ktlint",
+        "phase": "VERIFICATION",
+        "params": {"args": ["app/src/main/java"]},
+        "example": "MCP_CALL: run_ktlint | {}",
+    },
+    {
+        "name": "run_detekt",
+        "phase": "VERIFICATION",
+        "params": {"args": ["--input", "app/src/main/java"]},
+        "example": "MCP_CALL: run_detekt | {}",
+    },
+    {
+        "name": "parse_test_results_xml",
+        "phase": "VERIFICATION",
+        "params": {"results_dir": "app/build/test-results/testDebugUnitTest", "raw_xml": ""},
+        "example": "MCP_CALL: parse_test_results_xml | {}",
+    },
+    {
+        "name": "get_coverage_summary",
+        "phase": "VERIFICATION/INTEGRATION",
+        "params": {"results_dir": "app/build/reports/jacoco/jacocoTestReport"},
+        "example": "MCP_CALL: get_coverage_summary | {}",
+    },
+    {
+        "name": "run_instrumented_tests",
+        "phase": "VERIFICATION",
+        "params": {"module": "app", "variant": "Debug", "test_filter": ""},
+        "example": "MCP_CALL: run_instrumented_tests | {}",
+    },
+    {
+        "name": "run_screenshot_tests",
+        "phase": "VERIFICATION",
+        "params": {"module": "app", "mode": "record", "test_filter": "com.example.ui.ScreenshotDriverTest"},
+        "example": "MCP_CALL: run_screenshot_tests | {\"mode\": \"verify\"}",
+    },
+    {
         "name": "get_build_config",
         "phase": "INTEGRATION",
         "params": {},
@@ -286,7 +322,7 @@ def register(mcp: MCPServer) -> None:
         """
         return json.dumps({
             "name": "OllamaDev Toolbox",
-            "version": "0.5.0",
+            "version": "0.6.0",
             "uptime_seconds": round(time.time() - _START, 2),
         })
 
@@ -342,7 +378,7 @@ def register(mcp: MCPServer) -> None:
             "- DISCOVERY: prefer list_workspace_files, search_workspace, read_workspace_file\n"
             "- DESIGN: prefer get_file_outline, find_symbol, read_workspace_file\n"
             "- IMPLEMENTATION: prefer apply_file_patch, write_workspace_file, add_gradle_dependency, read_workspace_file\n"
-            "- VERIFICATION: prefer run_gradle_build, parse_test_results, run_gradle_tests, run_lint, run_ktlint_detekt, search_workspace, read_workspace_file\n"
+            "- VERIFICATION: prefer run_gradle_build, parse_test_results, parse_test_results_xml, run_gradle_tests, run_lint, run_ktlint_detekt, run_ktlint, run_detekt, get_coverage_summary, run_instrumented_tests, run_screenshot_tests, search_workspace, read_workspace_file\n"
             "- INTEGRATION: prefer git_status_diff, get_build_config, search_workspace, find_symbol, get_todos\n"
             "- RETROSPECTIVE: prefer git_commit_checkpoint, evaluate_sprint_outcome, create_sprint_task, update_phase_artifact, store_memory\n"
             "- META: prefer describe_tools, suggest_next_action\n"
