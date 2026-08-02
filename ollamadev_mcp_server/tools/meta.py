@@ -13,7 +13,14 @@ from typing import Any
 import requests
 from mcp.server import MCPServer
 
-from ollamadev_mcp_server.constants import OLLAMA_URL
+from ollamadev_mcp_server.constants import (
+    ANTHROPIC_API_KEY,
+    ANTHROPIC_AUTH_TOKEN,
+    ANTHROPIC_BASE_URL,
+    DEFAULT_CLOUD_MODEL,
+    OLLAMA_API_KEY,
+    OLLAMA_URL,
+)
 
 _START = time.time()
 
@@ -115,6 +122,42 @@ _TOOL_CATALOG: list[dict[str, Any]] = [
         "phase": "VERIFICATION",
         "params": {"command": "ktlint", "args": ["app/src/main/java"]},
         "example": "MCP_CALL: run_ktlint_detekt | {\"command\": \"ktlint\"}",
+    },
+    {
+        "name": "run_ktlint",
+        "phase": "VERIFICATION",
+        "params": {"args": ["app/src/main/java"]},
+        "example": "MCP_CALL: run_ktlint | {}",
+    },
+    {
+        "name": "run_detekt",
+        "phase": "VERIFICATION",
+        "params": {"args": ["--input", "app/src/main/java"]},
+        "example": "MCP_CALL: run_detekt | {}",
+    },
+    {
+        "name": "parse_test_results_xml",
+        "phase": "VERIFICATION",
+        "params": {"results_dir": "app/build/test-results/testDebugUnitTest", "raw_xml": ""},
+        "example": "MCP_CALL: parse_test_results_xml | {}",
+    },
+    {
+        "name": "get_coverage_summary",
+        "phase": "VERIFICATION/INTEGRATION",
+        "params": {"results_dir": "app/build/reports/jacoco/jacocoTestReport"},
+        "example": "MCP_CALL: get_coverage_summary | {}",
+    },
+    {
+        "name": "run_instrumented_tests",
+        "phase": "VERIFICATION",
+        "params": {"module": "app", "variant": "Debug", "test_filter": ""},
+        "example": "MCP_CALL: run_instrumented_tests | {}",
+    },
+    {
+        "name": "run_screenshot_tests",
+        "phase": "VERIFICATION",
+        "params": {"module": "app", "mode": "record", "test_filter": "com.example.ui.ScreenshotDriverTest"},
+        "example": "MCP_CALL: run_screenshot_tests | {\"mode\": \"verify\"}",
     },
     {
         "name": "get_build_config",
@@ -230,6 +273,24 @@ _TOOL_CATALOG: list[dict[str, Any]] = [
         "params": {"goal": "", "phase": "", "context": "", "model": "llama3"},
         "example": "MCP_CALL: suggest_next_action | {\"goal\": \"Add a new migration for sprint tables\", \"phase\": \"IMPLEMENTATION\"}",
     },
+    {
+        "name": "get_server_settings",
+        "phase": "META",
+        "params": {},
+        "example": "MCP_CALL: get_server_settings | {}",
+    },
+    {
+        "name": "update_server_settings",
+        "phase": "META",
+        "params": {"settings": {"ollama_url": "http://localhost:11434"}},
+        "example": "MCP_CALL: update_server_settings | {\"settings\": {\"default_cloud_model\": \"claude-sonnet-5-20251001\"}}",
+    },
+    {
+        "name": "reset_server_settings",
+        "phase": "META",
+        "params": {},
+        "example": "MCP_CALL: reset_server_settings | {}",
+    },
 ]
 
 
@@ -261,7 +322,7 @@ def register(mcp: MCPServer) -> None:
         """
         return json.dumps({
             "name": "OllamaDev Toolbox",
-            "version": "0.4.0",
+            "version": "0.6.0",
             "uptime_seconds": round(time.time() - _START, 2),
         })
 
@@ -284,20 +345,24 @@ def register(mcp: MCPServer) -> None:
         context: str = "",
         model: str = "llama3",
         category: str = "all",
+        provider: str = "auto",
     ) -> str:
-        """Ask a local Ollama model to recommend the next MCP tool call.
+        """Ask a model to recommend the next MCP tool call.
 
-        This is the agentic self-prompt: it sends the tool catalog + current goal + phase
-        to Ollama and returns a JSON recommendation with tool_name, arguments, reasoning,
-        and confidence.
+        Supports both a local Ollama instance and Anthropic's cloud API. By default
+        `provider='auto'` picks Anthropic when `ANTHROPIC_API_KEY` is present,
+        otherwise it falls back to Ollama.
 
         Args:
             goal:      The sprint goal or current task.
             phase:     Current sprint phase (DISCOVERY, DESIGN, IMPLEMENTATION,
                        VERIFICATION, INTEGRATION, RETROSPECTIVE, META).
             context:   Optional recent observations / prior tool results.
-            model:     Ollama model name (default: 'llama3').
+            model:     Model name. For Ollama this is a local model tag (default: 'llama3').
+                       For Anthropic this is a model ID; when the default local tag is
+                       passed, the configured DEFAULT_CLOUD_MODEL is used instead.
             category:  Tool category to restrict recommendations to (default: 'all').
+            provider:  One of 'auto', 'ollama', or 'anthropic'.
 
         Returns:
             JSON string: {"tool_name": "...", "arguments": {...}, "reasoning": "...", "confidence": 0.0}
@@ -313,7 +378,7 @@ def register(mcp: MCPServer) -> None:
             "- DISCOVERY: prefer list_workspace_files, search_workspace, read_workspace_file\n"
             "- DESIGN: prefer get_file_outline, find_symbol, read_workspace_file\n"
             "- IMPLEMENTATION: prefer apply_file_patch, write_workspace_file, add_gradle_dependency, read_workspace_file\n"
-            "- VERIFICATION: prefer run_gradle_build, parse_test_results, run_gradle_tests, run_lint, run_ktlint_detekt, search_workspace, read_workspace_file\n"
+            "- VERIFICATION: prefer run_gradle_build, parse_test_results, parse_test_results_xml, run_gradle_tests, run_lint, run_ktlint_detekt, run_ktlint, run_detekt, get_coverage_summary, run_instrumented_tests, run_screenshot_tests, search_workspace, read_workspace_file\n"
             "- INTEGRATION: prefer git_status_diff, get_build_config, search_workspace, find_symbol, get_todos\n"
             "- RETROSPECTIVE: prefer git_commit_checkpoint, evaluate_sprint_outcome, create_sprint_task, update_phase_artifact, store_memory\n"
             "- META: prefer describe_tools, suggest_next_action\n"
@@ -327,6 +392,71 @@ def register(mcp: MCPServer) -> None:
             "Recommend the next single MCP tool call."
         )
 
+        chosen_provider = provider.lower()
+        if chosen_provider == "auto":
+            chosen_provider = "anthropic" if ANTHROPIC_API_KEY else "ollama"
+
+        try:
+            if chosen_provider == "anthropic":
+                raw = _ask_anthropic(system_prompt, user_prompt, model)
+            else:
+                raw = _ask_ollama(system_prompt, user_prompt, model)
+            parsed = _parse_recommendation(raw)
+            return json.dumps(parsed, ensure_ascii=False, indent=2)
+        except requests.exceptions.ConnectionError as exc:
+            return json.dumps({
+                "tool_name": None,
+                "arguments": {},
+                "reasoning": f"Model provider not reachable: {exc}",
+                "confidence": 0.0,
+            }, indent=2)
+        except requests.exceptions.Timeout:
+            return json.dumps({
+                "tool_name": None,
+                "arguments": {},
+                "reasoning": "Model request timed out.",
+                "confidence": 0.0,
+            }, indent=2)
+        except Exception as exc:
+            return json.dumps({
+                "tool_name": None,
+                "arguments": {},
+                "reasoning": f"Could not parse model response: {exc}",
+                "confidence": 0.0,
+            }, indent=2)
+
+
+def _ask_ollama(system_prompt: str, user_prompt: str, model: str) -> str:
+    """Send a request to an Ollama API (local or cloud).
+
+    Ollama Cloud (https://ollama.com) exposes the chat endpoint at /api/chat rather
+    than the legacy /api/generate endpoint. Local Ollama supports both, so we use
+    /api/chat whenever the remote host looks like the cloud service and fall back to
+    /api/generate for other local/self-hosted endpoints.
+    """
+    headers = {}
+    if OLLAMA_API_KEY:
+        headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
+
+    is_cloud = "ollama.com" in OLLAMA_URL
+    if is_cloud and (not model or model == "llama3"):
+        # The default local tag is meaningless in Ollama Cloud; substitute the configured
+        # cloud model, stripping any provider suffix (e.g. ':cloud') that local proxy configs use.
+        model = (DEFAULT_CLOUD_MODEL or "kimi-k2.7-code").split(":")[0]
+
+    if is_cloud:
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.0},
+        }
+        endpoint = f"{OLLAMA_URL}/api/chat"
+    else:
         payload = {
             "model": model,
             "system": system_prompt,
@@ -335,40 +465,77 @@ def register(mcp: MCPServer) -> None:
             "format": "json",
             "options": {"temperature": 0.0},
         }
+        endpoint = f"{OLLAMA_URL}/api/generate"
 
-        try:
-            resp = requests.post(
-                f"{OLLAMA_URL}/api/generate",
-                json=payload,
-                timeout=60,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            raw = data.get("response", "")
-            parsed = json.loads(raw)
-            for key in ("tool_name", "arguments", "reasoning", "confidence"):
-                if key not in parsed:
-                    raise ValueError(f"Missing key: {key}")
-            parsed["confidence"] = float(parsed["confidence"])
-            return json.dumps(parsed, ensure_ascii=False, indent=2)
-        except requests.exceptions.ConnectionError as exc:
-            return json.dumps({
-                "tool_name": None,
-                "arguments": {},
-                "reasoning": f"Ollama is not reachable at {OLLAMA_URL}: {exc}",
-                "confidence": 0.0,
-            }, indent=2)
-        except requests.exceptions.Timeout:
-            return json.dumps({
-                "tool_name": None,
-                "arguments": {},
-                "reasoning": "Ollama request timed out.",
-                "confidence": 0.0,
-            }, indent=2)
-        except Exception as exc:
-            return json.dumps({
-                "tool_name": None,
-                "arguments": {},
-                "reasoning": f"Could not parse Ollama response: {exc}",
-                "confidence": 0.0,
-            }, indent=2)
+    resp = requests.post(endpoint, headers=headers, json=payload, timeout=120)
+    resp.raise_for_status()
+    data = resp.json()
+    if is_cloud:
+        return data.get("message", {}).get("content", "")
+    return data.get("response", "")
+
+
+def _ask_anthropic(system_prompt: str, user_prompt: str, model: str) -> str:
+    """Send a messages request to the Anthropic-compatible cloud API."""
+    # Prefer the real API key, but fall back to the auth token for proxies that use it.
+    api_key = ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN
+    if not api_key:
+        raise RuntimeError("Neither ANTHROPIC_API_KEY nor ANTHROPIC_AUTH_TOKEN is set; cannot use cloud provider.")
+
+    # If the caller left the Ollama default in place, substitute the configured cloud model.
+    model_id = model if model and model != "llama3" else DEFAULT_CLOUD_MODEL
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    body = {
+        "model": model_id,
+        "max_tokens": 1024,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": user_prompt}],
+        "temperature": 0.0,
+    }
+    resp = requests.post(
+        f"{ANTHROPIC_BASE_URL}/v1/messages",
+        headers=headers,
+        json=body,
+        timeout=120,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    content = data.get("content") or []
+    text_blocks = [block.get("text", "") for block in content if block.get("type") == "text"]
+    if not text_blocks:
+        raise ValueError("Anthropic response had no text content")
+    return text_blocks[0]
+
+
+def _extract_json(raw: str) -> dict[str, Any]:
+    """Extract a JSON object from a response that may be wrapped in markdown fences."""
+    raw = raw.strip()
+    # Strip markdown code fences if present: keep the segment between the first pair.
+    if "```" in raw:
+        parts = raw.split("```")
+        raw = parts[1] if len(parts) >= 2 else raw
+        raw = raw.strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        # Fall back to the first {...} object in the response.
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("No JSON object found in response")
+        return json.loads(raw[start:end + 1])
+
+
+def _parse_recommendation(raw: str) -> dict[str, Any]:
+    """Parse and lightly validate the JSON recommendation."""
+    parsed = _extract_json(raw)
+    for key in ("tool_name", "arguments", "reasoning", "confidence"):
+        if key not in parsed:
+            raise ValueError(f"Missing key: {key}")
+    parsed["confidence"] = float(parsed["confidence"])
+    return parsed

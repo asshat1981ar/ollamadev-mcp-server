@@ -2,7 +2,7 @@
 
 Companion MCP server for the **OllamaDev** Android app, written with the **MCP Python SDK v2 beta**.
 
-It exposes a comprehensive toolbox of **36 tools** that OllamaDev agents can invoke via `MCP_CALL:` directives during every SDLC sprint phase. It also includes an **agentic self-prompt** tool (`suggest_next_action`) that asks a local Ollama model which tool to call next.
+It exposes a comprehensive toolbox of **46 tools** that OllamaDev agents can invoke via `MCP_CALL:` directives during every SDLC sprint phase. It also includes an **agentic self-prompt** tool (`suggest_next_action`) that asks a local Ollama model which tool to call next.
 
 ## Server layout
 
@@ -23,7 +23,8 @@ ollamadev-mcp-server/
         ├── patch.py                # apply_file_patch
         ├── git_tools.py            # git status/diff/commit/log
         ├── dependencies.py         # add_gradle_dependency
-        └── observability.py        # get_task_transcript
+        ├── observability.py        # get_task_transcript
+        └── settings.py             # get/update/reset server settings
 ```
 
 ## Requirements
@@ -95,6 +96,12 @@ Override Ollama URL: `OLLAMA_URL=http://localhost:11434 uv run serve`
 | `parse_test_results(gradle_output)` | Parse raw Gradle output into structured JSON | VERIFICATION |
 | `run_lint(module="app")` | Run Android Lint | VERIFICATION |
 | `run_ktlint_detekt(command="ktlint")` | Run ktlint/detekt if installed | VERIFICATION |
+| `run_ktlint(args)` | Run ktlint (default: `app/src/main/java`) | VERIFICATION |
+| `run_detekt(args)` | Run detekt (tries `detekt-cli`, then `detekt`) | VERIFICATION |
+| `parse_test_results_xml(results_dir, raw_xml)` | Parse JUnit XML reports into structured JSON (totals + failure details) | VERIFICATION |
+| `get_coverage_summary(results_dir)` | Parse a JaCoCo XML report into LINE/BRANCH/INSTRUCTION coverage | VERIFICATION / INTEGRATION |
+| `run_instrumented_tests(module, variant, test_filter)` | Run `connectedAndroidTest` on a device/emulator (checks `adb devices` first) | VERIFICATION |
+| `run_screenshot_tests(module, mode, test_filter)` | Roborazzi record/verify screenshot tests on the JVM (no emulator) | VERIFICATION |
 | `get_build_config()` | Read `libs.versions.toml` and Gradle build files | INTEGRATION |
 
 ### Execution sandbox
@@ -146,6 +153,45 @@ Override Ollama URL: `OLLAMA_URL=http://localhost:11434 uv run serve`
 | `ping()` | Server version and uptime |
 | `describe_tools(category="all")` | Return a markdown catalog of tools |
 | `suggest_next_action(goal, phase, context, model)` | Ask Ollama which tool to call next |
+
+### Server settings
+
+| Tool | Description | Phase |
+|---|---|---|
+| `get_server_settings()` | Read-only JSON snapshot of effective config (secrets masked) | META |
+| `update_server_settings(settings)` | Persist config overrides to `store/server_settings.json` | META |
+| `reset_server_settings()` | **Destructive**: delete the persisted settings file | META |
+
+## Server settings
+
+Settings are persisted as JSON (default: `<WORKSPACE_ROOT>/store/server_settings.json`,
+overridable with the `OLLAMADEV_SETTINGS_FILE` env var) and follow the precedence:
+
+```
+environment variable  >  persisted settings file  >  code default
+```
+
+Allowed keys: `workspace_root`, `ollama_url`, `ollama_api_key`,
+`anthropic_api_key`, `anthropic_auth_token`, `anthropic_base_url`,
+`default_cloud_model`. Secret values are never echoed back in full — `get_server_settings`
+reports them masked (`***`) with `*_set` flags.
+
+```bash
+# Read the effective configuration (env > persisted > default).
+curl -s -X POST http://localhost:5000/mcp \
+  -H 'Content-Type: application/json' -H 'MCP-Protocol-Version: 2025-06-18' \
+  -H 'Mcp-Session-Id: <session-id>' \
+  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_server_settings","arguments":{}}}'
+
+# Persist an override (takes effect on next server restart).
+curl -s -X POST http://localhost:5000/mcp \
+  -H 'Content-Type: application/json' -H 'MCP-Protocol-Version: 2025-06-18' \
+  -H 'Mcp-Session-Id: <session-id>' \
+  -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"update_server_settings","arguments":{"settings":{"ollama_url":"http://10.0.2.2:11434"}}}}'
+```
+
+Constants are resolved once at server startup, so `update_server_settings` reports which
+keys require a restart; the file itself is written atomically (temp file + rename).
 
 ## Agentic self-prompt (`suggest_next_action`)
 
