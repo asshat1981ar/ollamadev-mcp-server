@@ -7,6 +7,8 @@ from pathlib import Path
 from mcp.server import MCPServer
 
 from ollamadev_mcp_server.constants import WORKSPACE_ROOT
+from ollamadev_mcp_server.tool_decorator import tool_runtime
+from ollamadev_mcp_server.tool_runtime import ToolContext
 from ollamadev_mcp_server.tools.filesystem import _is_ignored, _safe_path
 
 
@@ -30,21 +32,23 @@ _SIGNATURE_PATTERNS = [
 ]
 
 
-def _search_files(pattern: str, file_glob: str, ignore_case: bool, context_lines: int) -> str:
+def _search_files(workspace: Path, pattern: str, file_glob: str, ignore_case: bool, context_lines: int) -> str:
     cmd = ["grep", "-rn", f"--include={file_glob}", f"-C{context_lines}"]
     if ignore_case:
         cmd.append("-i")
-    cmd += ["--", pattern, str(WORKSPACE_ROOT)]
+    cmd += ["--", pattern, str(workspace)]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     out = result.stdout.strip()
-    out = out.replace(str(WORKSPACE_ROOT) + "/", "")
+    out = out.replace(str(workspace) + "/", "")
     return out if out else "No matches found."
 
 
 def register(mcp: MCPServer) -> None:
     @mcp.tool()
+    @tool_runtime(name="search_workspace")
     def search_workspace(
-        pattern: str,
+        ctx: ToolContext = None,
+        pattern: str = "",
         file_glob: str = "*.kt",
         ignore_case: bool = False,
         context_lines: int = 2,
@@ -60,10 +64,12 @@ def register(mcp: MCPServer) -> None:
         Returns:
             grep output with file:line:content hits, or 'No matches found.'
         """
-        return _search_files(pattern, file_glob, ignore_case, context_lines)
+        workspace = ctx.workspace_root if ctx else WORKSPACE_ROOT
+        return _search_files(workspace, pattern, file_glob, ignore_case, context_lines)
 
     @mcp.tool()
-    def get_file_outline(path: str) -> str:
+    @tool_runtime(name="get_file_outline")
+    def get_file_outline(ctx: ToolContext = None, path: str = "") -> str:
         """Return a compact outline of a Kotlin source file.
 
         Extracts package, imports, classes, interfaces, objects, functions, and top-level
@@ -91,8 +97,10 @@ def register(mcp: MCPServer) -> None:
         return header + "\n".join(outline) if outline else header + "No signatures detected."
 
     @mcp.tool()
+    @tool_runtime(name="find_symbol")
     def find_symbol(
-        name: str,
+        ctx: ToolContext = None,
+        name: str = "",
         symbol_type: str = "any",
         file_glob: str = "*.kt",
     ) -> str:
@@ -120,18 +128,21 @@ def register(mcp: MCPServer) -> None:
         else:
             raise ValueError(f"symbol_type must be one of: any, class, function, property")
 
+        workspace = ctx.workspace_root if ctx else WORKSPACE_ROOT
         results: list[str] = []
         for pat in patterns:
-            cmd = ["grep", "-rnE", f"--include={file_glob}", pat, str(WORKSPACE_ROOT)]
+            cmd = ["grep", "-rnE", f"--include={file_glob}", pat, str(workspace)]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             for hit in result.stdout.strip().splitlines():
-                hit = hit.replace(str(WORKSPACE_ROOT) + "/", "")
+                hit = hit.replace(str(workspace) + "/", "")
                 results.append(hit)
 
         return "\n".join(results) if results else "No declarations found."
 
     @mcp.tool()
+    @tool_runtime(name="get_todos")
     def get_todos(
+        ctx: ToolContext = None,
         file_glob: str = "*.kt",
         patterns: list[str] | None = None,
     ) -> str:
@@ -150,7 +161,8 @@ def register(mcp: MCPServer) -> None:
             return "No markers specified."
 
         regex = "|".join(re.escape(p) for p in patterns)
-        cmd = ["grep", "-rn", f"--include={file_glob}", "-E", f"({regex})", str(WORKSPACE_ROOT)]
+        workspace = ctx.workspace_root if ctx else WORKSPACE_ROOT
+        cmd = ["grep", "-rn", f"--include={file_glob}", "-E", f"({regex})", str(workspace)]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         out = result.stdout.strip()
         out = out.replace(str(WORKSPACE_ROOT) + "/", "")

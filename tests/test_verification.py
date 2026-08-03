@@ -85,7 +85,9 @@ def test_parse_test_results_xml_from_dir(tmp_path):
     (results_dir / "TEST-com.example.FooTest.xml").write_text(JUNIT_XML, encoding="utf-8")
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("parse_test_results_xml", {}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert data["totals"]["total"] == 4
     assert data["totals"]["passed"] == 2
     assert data["totals"]["files"] == 1
@@ -95,7 +97,9 @@ def test_parse_test_results_xml_from_dir(tmp_path):
 def test_parse_test_results_xml_raw_xml(tmp_path):
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("parse_test_results_xml", {"raw_xml": JUNIT_XML}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert data["source"] == "raw_xml"
     assert data["total"] == 4
 
@@ -103,14 +107,18 @@ def test_parse_test_results_xml_raw_xml(tmp_path):
 def test_parse_test_results_xml_dir_missing(tmp_path):
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("parse_test_results_xml", {}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert "not found" in data["error"]
 
 
 def test_parse_test_results_xml_invalid_raw(tmp_path):
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("parse_test_results_xml", {"raw_xml": "<testsuite>"}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert "Invalid XML" in data["error"]
 
 
@@ -133,7 +141,9 @@ def test_get_coverage_summary_found(tmp_path):
     (report / "jacocoTestReport.xml").write_text(JACOCO_XML, encoding="utf-8")
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("get_coverage_summary", {}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert data["source"] == "app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml"
     assert data["counters"]["LINE"]["coverage_pct"] == 95.0
 
@@ -141,7 +151,9 @@ def test_get_coverage_summary_found(tmp_path):
 def test_get_coverage_summary_not_found(tmp_path):
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("get_coverage_summary", {}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert "No JaCoCo XML report" in data["error"]
     assert "jacocoTestReport" in data["hint"]
 
@@ -261,14 +273,18 @@ def test_run_instrumented_tests_missing_gradlew_with_device(tmp_path, monkeypatc
 
 def test_run_screenshot_tests_bad_mode(tmp_path):
     mcp = _make_server(tmp_path)
-    with pytest.raises(ToolError, match="mode must be 'record' or 'verify'"):
-        asyncio.run(mcp.call_tool("run_screenshot_tests", {"mode": "delete"}))
+    result = asyncio.run(mcp.call_tool("run_screenshot_tests", {"mode": "delete"}))
+    response = json.loads(result.content[0].text)
+    assert response["success"] is False
+    assert "mode must be 'record' or 'verify'" in response["error"]["message"]
 
 
 def test_run_screenshot_tests_missing_gradlew(tmp_path):
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("run_screenshot_tests", {}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert data["status"] == "FAILED"
     assert "gradlew not found" in data["error"]
 
@@ -279,7 +295,9 @@ def test_run_screenshot_tests_invokes_gradle(tmp_path):
     gradlew.chmod(0o755)
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("run_screenshot_tests", {}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert data["status"] == "PASSED"
     assert data["task"] == ":app:recordRoborazziDebug"
     assert ":app:recordRoborazziDebug" in data["output"]
@@ -292,6 +310,8 @@ def test_run_screenshot_tests_verify_mode(tmp_path):
     gradlew.chmod(0o755)
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("run_screenshot_tests", {"mode": "verify"}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert data["status"] == "PASSED"
     assert data["task"] == ":app:verifyRoborazziDebug"

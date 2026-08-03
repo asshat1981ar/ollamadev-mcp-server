@@ -23,7 +23,9 @@ def test_get_server_settings_returns_effective_snapshot(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "SETTINGS_FILE", settings_file)
     mcp = _make_server()
     result = asyncio.run(mcp.call_tool("get_server_settings", {}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert data["settings_file"] == str(settings_file)
     assert data["workspace_root"] == str(constants.WORKSPACE_ROOT)
     assert "ollama_url" in data
@@ -42,7 +44,9 @@ def test_update_server_settings_persists_and_masks_secrets(monkeypatch, tmp_path
             {"settings": {"ollama_url": "http://localhost:11434", "anthropic_api_key": "sk-secret"}},
         )
     )
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert data["status"] == "saved"
     assert data["settings_file"] == str(settings_file)
     assert data["saved"]["ollama_url"] == "http://localhost:11434"
@@ -59,15 +63,19 @@ def test_update_server_settings_persists_and_masks_secrets(monkeypatch, tmp_path
 def test_update_server_settings_rejects_unknown_keys(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "SETTINGS_FILE", tmp_path / "server_settings.json")
     mcp = _make_server()
-    with pytest.raises(ToolError, match="Unknown setting keys"):
-        asyncio.run(mcp.call_tool("update_server_settings", {"settings": {"bogus": "x"}}))
+    result = asyncio.run(mcp.call_tool("update_server_settings", {"settings": {"bogus": "x"}}))
+    response = json.loads(result.content[0].text)
+    assert response["success"] is False
+    assert "Unknown setting keys" in response["error"]["message"]
 
 
 def test_update_server_settings_rejects_non_string_values(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "SETTINGS_FILE", tmp_path / "server_settings.json")
     mcp = _make_server()
-    with pytest.raises(ToolError, match="non-empty string"):
-        asyncio.run(mcp.call_tool("update_server_settings", {"settings": {"ollama_url": ""}}))
+    result = asyncio.run(mcp.call_tool("update_server_settings", {"settings": {"ollama_url": ""}}))
+    response = json.loads(result.content[0].text)
+    assert response["success"] is False
+    assert "non-empty string" in response["error"]["message"]
 
 
 def test_update_server_settings_merges_not_replaces(monkeypatch, tmp_path):
@@ -88,7 +96,9 @@ def test_reset_server_settings_removes_file(monkeypatch, tmp_path):
     asyncio.run(mcp.call_tool("update_server_settings", {"settings": {"ollama_url": "http://a:1"}}))
     assert settings_file.exists()
     result = asyncio.run(mcp.call_tool("reset_server_settings", {}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert data["status"] == "reset"
     assert data["removed_file"] is True
     assert not settings_file.exists()
@@ -98,7 +108,9 @@ def test_reset_server_settings_when_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "SETTINGS_FILE", tmp_path / "no-such.json")
     mcp = _make_server()
     result = asyncio.run(mcp.call_tool("reset_server_settings", {}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert data["removed_file"] is False
 
 

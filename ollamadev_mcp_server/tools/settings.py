@@ -17,6 +17,8 @@ from pathlib import Path
 from mcp.server import MCPServer
 
 from ollamadev_mcp_server import constants
+from ollamadev_mcp_server.tool_decorator import tool_runtime
+from ollamadev_mcp_server.tool_runtime import ToolContext
 from ollamadev_mcp_server.persistence import (
     clear_persisted_settings,
     load_persisted_settings,
@@ -74,16 +76,18 @@ def effective_settings() -> dict:
 
 def register(mcp: MCPServer) -> None:
     @mcp.tool(annotations={"destructiveHint": False, "readOnlyHint": True})
-    def get_server_settings() -> str:
+    @tool_runtime(name="get_server_settings")
+    def get_server_settings(ctx: ToolContext = None) -> str:
         """Return the effective server configuration as JSON.
 
         Precedence: environment variable > persisted settings file > code default.
         Secret values are masked ('***') and reported via *_set flags.
         """
-        return json.dumps(effective_settings(), indent=2, ensure_ascii=False)
+        return effective_settings()
 
     @mcp.tool(annotations={"destructiveHint": False, "readOnlyHint": False})
-    def update_server_settings(settings: dict) -> str:
+    @tool_runtime(name="update_server_settings")
+    def update_server_settings(ctx: ToolContext = None, settings: dict = None) -> str:
         """Persist new server settings to the settings JSON file.
 
         Args:
@@ -113,35 +117,28 @@ def register(mcp: MCPServer) -> None:
         persisted.update({key: value.strip() for key, value in settings.items()})
         save_persisted_settings(persisted, SETTINGS_FILE)
 
-        return json.dumps(
-            {
-                "status": "saved",
-                "settings_file": str(SETTINGS_FILE),
-                "saved": {
-                    key: (_masked(value) if key in SECRET_KEYS else value)
-                    for key, value in settings.items()
-                },
-                "restart_required": sorted(set(settings) & RESTART_REQUIRED_KEYS),
+        return {
+            "status": "saved",
+            "settings_file": str(SETTINGS_FILE),
+            "saved": {
+                key: (_masked(value) if key in SECRET_KEYS else value)
+                for key, value in settings.items()
             },
-            indent=2,
-            ensure_ascii=False,
-        )
+            "restart_required": sorted(set(settings) & RESTART_REQUIRED_KEYS),
+        }
 
     @mcp.tool(annotations={"destructiveHint": True, "readOnlyHint": False})
-    def reset_server_settings() -> str:
+    @tool_runtime(name="reset_server_settings")
+    def reset_server_settings(ctx: ToolContext = None) -> str:
         """Delete the persisted settings file and revert to env/code defaults.
 
         Warning: this discards all persisted overrides. A server restart is required
         for the revert to take effect.
         """
         removed = clear_persisted_settings(SETTINGS_FILE)
-        return json.dumps(
-            {
-                "status": "reset",
-                "removed_file": removed,
-                "settings_file": str(SETTINGS_FILE),
-                "note": "Restart the server to apply environment/default configuration.",
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
+        return {
+            "status": "reset",
+            "removed_file": removed,
+            "settings_file": str(SETTINGS_FILE),
+            "note": "Restart the server to apply environment/default configuration.",
+        }

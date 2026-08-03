@@ -21,31 +21,45 @@ def _make_server(tmp_workspace: Path) -> MCPServer:
 def test_store_recall_clear_roundtrip(tmp_path):
     mcp = _make_server(tmp_path)
     stored = asyncio.run(mcp.call_tool("store_memory", {"key": "lesson", "value": "always test"}))
-    assert "Stored memory 'lesson'" in stored.content[0].text
+    stored_response = json.loads(stored.content[0].text)
+    assert stored_response["success"] is True
+    assert "Stored memory 'lesson'" in stored_response["data"]
 
     recalled = asyncio.run(mcp.call_tool("recall_memory", {"key": "lesson"}))
-    assert recalled.content[0].text == "always test"
+    recalled_response = json.loads(recalled.content[0].text)
+    assert recalled_response["success"] is True
+    assert recalled_response["data"] == "always test"
 
     listed = asyncio.run(mcp.call_tool("list_memories", {}))
-    assert "lesson" in listed.content[0].text
+    listed_response = json.loads(listed.content[0].text)
+    assert listed_response["success"] is True
+    assert "lesson" in listed_response["data"]
 
     cleared = asyncio.run(mcp.call_tool("clear_memory", {"key": "lesson"}))
-    assert "Cleared memory 'lesson'." in cleared.content[0].text
+    cleared_response = json.loads(cleared.content[0].text)
+    assert cleared_response["success"] is True
+    assert "Cleared memory 'lesson'." in cleared_response["data"]
 
     missing = asyncio.run(mcp.call_tool("recall_memory", {"key": "lesson"}))
-    assert "Memory not found." in missing.content[0].text
+    missing_response = json.loads(missing.content[0].text)
+    assert missing_response["success"] is True
+    assert "Memory not found." in missing_response["data"]
 
 
 def test_recall_missing(tmp_path):
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("recall_memory", {"key": "nope"}))
-    assert "Memory not found." in result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    assert "Memory not found." in response["data"]
 
 
 def test_list_memories_empty(tmp_path):
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("list_memories", {}))
-    assert "No memories stored." in result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    assert "No memories stored." in response["data"]
 
 
 def test_corrupt_memory_file_is_tolerated(tmp_path):
@@ -54,7 +68,9 @@ def test_corrupt_memory_file_is_tolerated(tmp_path):
     (store / "agent_memory.json").write_text("{broken", encoding="utf-8")
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("list_memories", {}))
-    assert "No memories stored." in result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    assert "No memories stored." in response["data"]
 
 
 def test_memory_persists_to_disk(tmp_path):

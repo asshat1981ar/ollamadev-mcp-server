@@ -9,6 +9,8 @@ from mcp.server import MCPServer
 
 from ollamadev_mcp_server.constants import WORKSPACE_ROOT
 from ollamadev_mcp_server.tools.filesystem import _safe_path
+from ollamadev_mcp_server.tool_decorator import tool_runtime
+from ollamadev_mcp_server.tool_runtime import ToolContext
 
 
 @dataclass
@@ -95,7 +97,8 @@ def _apply_hunk(lines: list[str], hunk: Hunk, reverse: bool) -> list[str]:
 
 def register(mcp: MCPServer) -> None:
     @mcp.tool()
-    def apply_file_patch(path: str, patch: str, reverse: bool = False) -> str:
+    @tool_runtime(name="apply_file_patch")
+    def apply_file_patch(ctx: ToolContext = None, path: str = "", patch: str = "", reverse: bool = False) -> str:
         """Apply a unified-diff style patch to an existing workspace file.
 
         The patch must contain at least one hunk in unified diff format, e.g.:

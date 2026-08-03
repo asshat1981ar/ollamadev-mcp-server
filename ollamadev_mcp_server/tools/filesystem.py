@@ -7,6 +7,8 @@ from pathlib import Path
 from mcp.server import MCPServer
 
 from ollamadev_mcp_server.constants import WORKSPACE_ROOT
+from ollamadev_mcp_server.tool_decorator import tool_runtime
+from ollamadev_mcp_server.tool_runtime import ToolContext
 
 
 def _safe_path(relative: str) -> Path:
@@ -26,29 +28,35 @@ def _is_ignored(path: Path) -> bool:
 
 def register(mcp: MCPServer) -> None:
     @mcp.tool()
-    def list_workspace_files(root: str = "") -> list[str]:
+    @tool_runtime(name="list_workspace_files")
+    def list_workspace_files(ctx: ToolContext = None, root: str = "") -> str:
         """Return relative paths of all files in the OllamaDev workspace.
 
         Args:
             root: Sub-path within the workspace to limit the listing (default: entire workspace).
         """
-        base = WORKSPACE_ROOT / root if root else WORKSPACE_ROOT
+        workspace = ctx.workspace_root if ctx else WORKSPACE_ROOT
+        base = workspace / root if root else workspace
         if not base.exists():
             return []
         return sorted(
-            str(p.relative_to(WORKSPACE_ROOT))
+            str(p.relative_to(workspace))
             for p in base.rglob("*")
             if p.is_file() and not _is_ignored(p)
         )
 
     @mcp.tool()
-    def read_workspace_file(path: str) -> str:
+    @tool_runtime(name="read_workspace_file")
+    def read_workspace_file(ctx: ToolContext = None, path: str = "") -> str:
         """Read a file from the OllamaDev workspace by its relative path.
 
         Args:
             path: Path relative to the workspace root (e.g. 'app/src/main/java/com/example/data/Entities.kt').
         """
-        target = _safe_path(path)
+        workspace = ctx.workspace_root if ctx else WORKSPACE_ROOT
+        target = (workspace / path).resolve()
+        if not str(target).startswith(str(workspace.resolve())):
+            raise PermissionError(f"Path escapes workspace: {path}")
         if not target.exists():
             raise FileNotFoundError(f"File not found: {path}")
         if not target.is_file():
@@ -56,7 +64,8 @@ def register(mcp: MCPServer) -> None:
         return target.read_text(encoding="utf-8")
 
     @mcp.tool()
-    def write_workspace_file(path: str, content: str, create_dirs: bool = True) -> str:
+    @tool_runtime(name="write_workspace_file")
+    def write_workspace_file(ctx: ToolContext = None, path: str = "", content: str = "", create_dirs: bool = True) -> str:
         """Write (or overwrite) a file in the OllamaDev workspace.
 
         Args:
@@ -67,14 +76,18 @@ def register(mcp: MCPServer) -> None:
         Returns:
             Confirmation message including the number of bytes written.
         """
-        target = _safe_path(path)
+        workspace = ctx.workspace_root if ctx else WORKSPACE_ROOT
+        target = (workspace / path).resolve()
+        if not str(target).startswith(str(workspace.resolve())):
+            raise PermissionError(f"Path escapes workspace: {path}")
         if create_dirs:
             target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
-        return f"Written {len(content.encode())} bytes → {path}"
+        return f"Successfully wrote {len(content)} bytes to {path}"
 
     @mcp.tool()
-    def delete_workspace_file(path: str) -> str:
+    @tool_runtime(name="delete_workspace_file")
+    def delete_workspace_file(ctx: ToolContext = None, path: str = "") -> str:
         """Delete a file inside the OllamaDev workspace.
 
         Warning: this tool can delete project files. Use with care.
@@ -94,7 +107,8 @@ def register(mcp: MCPServer) -> None:
         return f"Deleted {path}"
 
     @mcp.tool()
-    def move_workspace_file(src: str, dst: str) -> str:
+    @tool_runtime(name="move_workspace_file")
+    def move_workspace_file(ctx: ToolContext = None, src: str = "", dst: str = "") -> str:
         """Move or rename a file within the OllamaDev workspace.
 
         Args:

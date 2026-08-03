@@ -1,6 +1,7 @@
 """Tests for the Gradle dependency tools."""
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -107,10 +108,12 @@ def test_add_gradle_dependency_inline_mode(tmp_path):
 def test_add_gradle_dependency_missing_module(tmp_path):
     _seed_project(tmp_path)
     mcp = _make_server(tmp_path)
-    with pytest.raises(ToolError, match="Module build file not found"):
-        asyncio.run(
-            mcp.call_tool(
-                "add_gradle_dependency",
-                {"alias": "x", "group": "g", "name": "n", "version": "1.0", "module": "lib"},
-            )
+    result = asyncio.run(
+        mcp.call_tool(
+            "add_gradle_dependency",
+            {"alias": "x", "group": "g", "name": "n", "version": "1.0", "module": "lib"},
         )
+    )
+    response = json.loads(result.content[0].text)
+    assert response["success"] is False
+    assert "Module build file not found" in response["error"]["message"]

@@ -7,6 +7,8 @@ from mcp.server import MCPServer
 
 from ollamadev_mcp_server.constants import WORKSPACE_ROOT
 from ollamadev_mcp_server.tools.filesystem import _safe_path
+from ollamadev_mcp_server.tool_decorator import tool_runtime
+from ollamadev_mcp_server.tool_runtime import ToolContext
 
 
 def _to_camel_alias(name: str) -> str:
@@ -63,11 +65,13 @@ def _add_dependency_to_build_gradle(text: str, config: str, reference: str) -> s
 
 def register(mcp: MCPServer) -> None:
     @mcp.tool()
+    @tool_runtime(name="add_gradle_dependency")
     def add_gradle_dependency(
-        alias: str,
-        group: str,
-        name: str,
-        version: str,
+        ctx: ToolContext = None,
+        alias: str = "",
+        group: str = "",
+        name: str = "",
+        version: str = "",
         module: str = "app",
         configuration: str = "implementation",
         add_to_catalog: bool = True,

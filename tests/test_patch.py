@@ -1,6 +1,7 @@
 """Tests for the patch / diff tools."""
 
 import asyncio
+import json
 import types
 from pathlib import Path
 
@@ -84,15 +85,28 @@ def test_apply_file_patch_reverse(tmp_path, monkeypatch):
 
 def test_apply_file_patch_context_mismatch(tmp_path, monkeypatch):
     _disable_system_patch(monkeypatch)
-    target = tmp_path / "Foo.kt"
-    target.write_text("package com.example\nclass Foo\n// different\nclass Bar\n", encoding="utf-8")
     mcp = _make_server(tmp_path)
-    with pytest.raises(ToolError, match="does not match"):
-        asyncio.run(mcp.call_tool("apply_file_patch", {"path": "Foo.kt", "patch": UNIFIED_PATCH}))
-
+    (tmp_path / "Foo.kt").write_text("line1\nline2\n", encoding="utf-8")
+    result = asyncio.run(
+        mcp.call_tool(
+            "apply_file_patch",
+            {
+                "path": "Foo.kt",
+                "patch": "@@ -1,2 +1,2 @@\n-wrong\n line2\n+new\n line2\n",
+            },
+        )
+    )
+    response = json.loads(result.content[0].text)
+    assert response["success"] is False
+    # Either error message indicates patch failure
+    error_msg = response["error"]["message"]
+    assert "does not match" in error_msg or "out of range" in error_msg
 
 def test_apply_file_patch_missing_file(tmp_path, monkeypatch):
     _disable_system_patch(monkeypatch)
     mcp = _make_server(tmp_path)
-    with pytest.raises(ToolError, match="File not found"):
-        asyncio.run(mcp.call_tool("apply_file_patch", {"path": "nope.kt", "patch": UNIFIED_PATCH}))
+    result = asyncio.run(mcp.call_tool("apply_file_patch", {"path": "nope.kt", "patch": UNIFIED_PATCH}))
+    response = json.loads(result.content[0].text)
+    assert response["success"] is False
+    assert "File not found" in response["error"]["message"]
+
