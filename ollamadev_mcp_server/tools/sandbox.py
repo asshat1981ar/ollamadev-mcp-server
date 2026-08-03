@@ -15,6 +15,8 @@ from pathlib import Path
 from mcp.server import MCPServer
 
 from ollamadev_mcp_server.constants import WORKSPACE_ROOT
+from ollamadev_mcp_server.tool_decorator import tool_runtime
+from ollamadev_mcp_server.tool_runtime import ToolContext
 
 
 def _run(
@@ -39,7 +41,9 @@ def _run(
 
 def register(mcp: MCPServer) -> None:
     @mcp.tool(annotations={"destructiveHint": False, "readOnlyHint": False})
+    @tool_runtime(name="run_pytest")
     def run_pytest(
+        ctx: ToolContext = None,
         path: str = "",
         test_filter: str = "",
         timeout_seconds: int = 300,
@@ -55,29 +59,26 @@ def register(mcp: MCPServer) -> None:
             JSON with exit code, pass/fail status, and combined output.
         """
         if shutil.which("pytest") is None:
-            return json.dumps(
-                {"returncode": -1, "status": "FAILED", "error": "pytest is not installed or not on PATH"},
-                indent=2,
-            )
+            return {"returncode": -1, "status": "FAILED", "error": "pytest is not installed or not on PATH"}
 
-        target = WORKSPACE_ROOT / path if path else WORKSPACE_ROOT
+        workspace = ctx.workspace_root if ctx else WORKSPACE_ROOT
+        target = workspace / path if path else workspace
         cmd = ["pytest", str(target)]
         if test_filter:
             cmd += ["-k", test_filter]
 
-        output = _run(cmd, cwd=WORKSPACE_ROOT, timeout=timeout_seconds)
+        output = _run(cmd, cwd=workspace, timeout=timeout_seconds)
         status = "PASSED" if output["returncode"] == 0 else "FAILED"
-        return json.dumps(
-            {
-                "returncode": output["returncode"],
-                "status": status,
-                "output": output["combined"],
-            },
-            indent=2,
-        )
+        return {
+            "returncode": output["returncode"],
+            "status": status,
+            "output": output["combined"],
+        }
 
     @mcp.tool(annotations={"destructiveHint": False, "readOnlyHint": False})
+    @tool_runtime(name="run_gradle_test_command")
     def run_gradle_test_command(
+        ctx: ToolContext = None,
         test_filter: str = "",
         timeout_seconds: int = 600,
     ) -> str:
@@ -94,7 +95,8 @@ def register(mcp: MCPServer) -> None:
         Returns:
             JSON with exit code, pass/fail status, and combined Gradle output.
         """
-        gradlew = WORKSPACE_ROOT / "gradlew"
+        workspace = ctx.workspace_root if ctx else WORKSPACE_ROOT
+        gradlew = workspace / "gradlew"
         if not gradlew.exists():
             return json.dumps(
                 {"returncode": -1, "status": "FAILED", "error": "gradlew not found in workspace root"},
@@ -108,22 +110,21 @@ def register(mcp: MCPServer) -> None:
         if test_filter:
             cmd += ["--tests", test_filter]
 
-        output = _run(cmd, cwd=WORKSPACE_ROOT, timeout=timeout_seconds)
+        output = _run(cmd, cwd=workspace, timeout=timeout_seconds)
         status = "PASSED" if output["returncode"] == 0 else "FAILED"
-        return json.dumps(
-            {
-                "returncode": output["returncode"],
-                "status": status,
-                "output": output["combined"],
-            },
-            indent=2,
-        )
+        return {
+            "returncode": output["returncode"],
+            "status": status,
+            "output": output["combined"],
+        }
 
     @mcp.tool(annotations={"destructiveHint": True, "readOnlyHint": False})
+    @tool_runtime(name="run_shell_command")
     def run_shell_command(
-        command: str,
+        ctx: ToolContext = None,
+        command: str = "",
         timeout_seconds: int = 300,
-    ) -> str:
+    ) -> dict:
         """Run an arbitrary shell command in the workspace root.
 
         This is intentionally marked destructiveHint=true so OllamaDev's MCP risk gate
@@ -139,27 +140,23 @@ def register(mcp: MCPServer) -> None:
         """
         output = _run(["/bin/sh", "-c", command], cwd=WORKSPACE_ROOT, timeout=timeout_seconds)
         status = "PASSED" if output["returncode"] == 0 else "FAILED"
-        return json.dumps(
-            {
-                "returncode": output["returncode"],
-                "status": status,
-                "output": output["combined"],
-            },
-            indent=2,
-        )
+        return {
+            "returncode": output["returncode"],
+            "status": status,
+            "output": output["combined"],
+        }
 
     @mcp.tool(annotations={"destructiveHint": False, "readOnlyHint": True})
-    def get_sandbox_status() -> str:
+    @tool_runtime(name="get_sandbox_status")
+    def get_sandbox_status(ctx: ToolContext = None) -> dict:
         """Return sandbox health and configuration.
 
         Returns:
             JSON with workspace root, pytest availability, gradlew presence, and uptime.
         """
-        return json.dumps(
-            {
-                "workspace_root": str(WORKSPACE_ROOT),
-                "pytest_available": shutil.which("pytest") is not None,
-                "gradlew_present": (WORKSPACE_ROOT / "gradlew").exists(),
-            },
-            indent=2,
-        )
+        workspace = ctx.workspace_root if ctx else WORKSPACE_ROOT
+        return {
+            "workspace_root": str(workspace),
+            "pytest_available": shutil.which("pytest") is not None,
+            "gradlew_present": (workspace / "gradlew").exists(),
+        }

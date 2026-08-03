@@ -1,6 +1,7 @@
 """Tests for the git tools."""
 
 import asyncio
+import json
 import subprocess
 from pathlib import Path
 
@@ -34,14 +35,18 @@ def git_workspace(tmp_path):
 def test_git_log_shows_commit(git_workspace):
     mcp = _make_server(git_workspace)
     result = asyncio.run(mcp.call_tool("git_log", {"limit": 5}))
-    assert "initial" in result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    assert "initial" in response["data"]
 
 
 def test_git_status_diff_shows_changes(git_workspace):
     (git_workspace / "README.md").write_text("# Repo\nchanged\n", encoding="utf-8")
     mcp = _make_server(git_workspace)
     result = asyncio.run(mcp.call_tool("git_status_diff", {}))
-    text = result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    text = response["data"]
     assert "README.md" in text
     assert "changed" in text
 
@@ -59,8 +64,12 @@ def test_git_unavailable_returns_error(monkeypatch, tmp_path):
     mcp = _make_server(tmp_path)
     monkeypatch.setattr(git_tools, "_git_available", lambda: False)
     result = asyncio.run(mcp.call_tool("git_status_diff", {}))
-    assert "git command not found" in result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    assert "git command not found" in response["data"]
     result = asyncio.run(mcp.call_tool("git_commit_checkpoint", {"message": "x"}))
     assert "git command not found" in result.content[0].text
     result = asyncio.run(mcp.call_tool("git_log", {}))
-    assert "git command not found" in result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    assert "git command not found" in response["data"]

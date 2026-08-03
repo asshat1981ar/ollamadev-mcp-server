@@ -20,7 +20,9 @@ def _make_server(tmp_workspace: Path) -> MCPServer:
 def test_transcript_missing(tmp_path):
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("get_task_transcript", {"task_id": 42}))
-    text = result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    text = response["data"]
     assert "No transcript export found for task 42" in text
     assert "task_transcript_42.json" in text
 
@@ -39,7 +41,9 @@ def test_transcript_json_to_markdown(tmp_path):
     )
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("get_task_transcript", {"task_id": 7}))
-    text = result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    text = response["data"]
     assert "Task 7 Transcript" in text
     assert "Planner" in text
     assert "step one" in text
@@ -51,7 +55,9 @@ def test_transcript_json_passthrough(tmp_path):
     (store / "task_transcript_7.json").write_text('[{"agentName": "QA"}]', encoding="utf-8")
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("get_task_transcript", {"task_id": 7, "format": "json"}))
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = response["data"]
     assert data[0]["agentName"] == "QA"
 
 
@@ -61,7 +67,9 @@ def test_transcript_invalid_json(tmp_path):
     (store / "task_transcript_3.json").write_text("{oops", encoding="utf-8")
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("get_task_transcript", {"task_id": 3}))
-    assert "not valid JSON" in result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    assert "not valid JSON" in response["data"]
 
 
 def test_transcript_markdown_passthrough(tmp_path):
@@ -70,4 +78,6 @@ def test_transcript_markdown_passthrough(tmp_path):
     (store / "task_transcript_9.md").write_text("# Task 9\n\nnotes", encoding="utf-8")
     mcp = _make_server(tmp_path)
     result = asyncio.run(mcp.call_tool("get_task_transcript", {"task_id": 9}))
-    assert result.content[0].text == "# Task 9\n\nnotes"
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    assert response["data"] == "# Task 9\n\nnotes"

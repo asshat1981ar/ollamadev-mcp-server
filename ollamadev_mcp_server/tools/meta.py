@@ -1,7 +1,7 @@
 """Meta / agentic tools for the OllamaDev MCP toolbox.
 
 Includes:
-- `describe_tools`: returns a hardcoded, phase-tagged catalog for agent consumption.
+- `describe_tools`: returns a phase-tagged catalog for agent consumption.
 - `suggest_next_action`: asks a local Ollama model which tool to call next.
 - `ping`: connectivity / sanity check.
 """
@@ -21,6 +21,10 @@ from ollamadev_mcp_server.constants import (
     OLLAMA_API_KEY,
     OLLAMA_URL,
 )
+from ollamadev_mcp_server.retry import with_retry, LLM_RETRY
+from ollamadev_mcp_server.circuit_breaker import get_ollama_breaker, get_anthropic_breaker
+from ollamadev_mcp_server.tool_decorator import tool_runtime
+from ollamadev_mcp_server.tool_runtime import ToolContext
 
 _START = time.time()
 
@@ -314,20 +318,22 @@ def _build_catalog_markdown(category: str = "all") -> str:
 
 def register(mcp: MCPServer) -> None:
     @mcp.tool()
-    def ping() -> str:
+    @tool_runtime(name="ping")
+    def ping(ctx: ToolContext = None) -> dict:
         """Return server version and uptime for connectivity checks.
 
         Returns:
             Short JSON string with name, version, and uptime seconds.
         """
-        return json.dumps({
+        return {
             "name": "OllamaDev Toolbox",
             "version": "0.6.0",
             "uptime_seconds": round(time.time() - _START, 2),
-        })
+        }
 
     @mcp.tool()
-    def describe_tools(category: str = "all") -> str:
+    @tool_runtime(name="describe_tools")
+    def describe_tools(ctx: ToolContext = None, category: str = "all") -> str:
         """Return a markdown catalog of every available tool with examples.
 
         Args:
@@ -339,9 +345,11 @@ def register(mcp: MCPServer) -> None:
         return _build_catalog_markdown(category)
 
     @mcp.tool()
+    @tool_runtime(name="suggest_next_action")
     def suggest_next_action(
-        goal: str,
-        phase: str,
+        ctx: ToolContext = None,
+        goal: str = "",
+        phase: str = "",
         context: str = "",
         model: str = "llama3",
         category: str = "all",
@@ -426,6 +434,7 @@ def register(mcp: MCPServer) -> None:
             }, indent=2)
 
 
+@with_retry(LLM_RETRY)
 def _ask_ollama(system_prompt: str, user_prompt: str, model: str) -> str:
     """Send a request to an Ollama API (local or cloud).
 
@@ -434,82 +443,93 @@ def _ask_ollama(system_prompt: str, user_prompt: str, model: str) -> str:
     /api/chat whenever the remote host looks like the cloud service and fall back to
     /api/generate for other local/self-hosted endpoints.
     """
-    headers = {}
-    if OLLAMA_API_KEY:
-        headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
+    breaker = get_ollama_breaker()
+    
+    def _do_request():
+        headers = {}
+        if OLLAMA_API_KEY:
+            headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
 
-    is_cloud = "ollama.com" in OLLAMA_URL
-    if is_cloud and (not model or model == "llama3"):
-        # The default local tag is meaningless in Ollama Cloud; substitute the configured
-        # cloud model, stripping any provider suffix (e.g. ':cloud') that local proxy configs use.
-        model = (DEFAULT_CLOUD_MODEL or "kimi-k2.7-code").split(":")[0]
+        is_cloud = "ollama.com" in OLLAMA_URL
+        if is_cloud and (not model or model == "llama3"):
+            # The default local tag is meaningless in Ollama Cloud; substitute the configured
+            # cloud model, stripping any provider suffix (e.g. ':cloud') that local proxy configs use.
+            model = (DEFAULT_CLOUD_MODEL or "kimi-k2.7-code").split(":")[0]
 
-    if is_cloud:
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "stream": False,
-            "format": "json",
-            "options": {"temperature": 0.0},
-        }
-        endpoint = f"{OLLAMA_URL}/api/chat"
-    else:
-        payload = {
-            "model": model,
-            "system": system_prompt,
-            "prompt": user_prompt,
-            "stream": False,
-            "format": "json",
-            "options": {"temperature": 0.0},
-        }
-        endpoint = f"{OLLAMA_URL}/api/generate"
+        if is_cloud:
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "stream": False,
+                "format": "json",
+                "options": {"temperature": 0.0},
+            }
+            endpoint = f"{OLLAMA_URL}/api/chat"
+        else:
+            payload = {
+                "model": model,
+                "system": system_prompt,
+                "prompt": user_prompt,
+                "stream": False,
+                "format": "json",
+                "options": {"temperature": 0.0},
+            }
+            endpoint = f"{OLLAMA_URL}/api/generate"
 
-    resp = requests.post(endpoint, headers=headers, json=payload, timeout=120)
-    resp.raise_for_status()
-    data = resp.json()
-    if is_cloud:
-        return data.get("message", {}).get("content", "")
-    return data.get("response", "")
+        resp = requests.post(endpoint, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        if is_cloud:
+            return data.get("message", {}).get("content", "")
+        return data.get("response", "")
+    
+    return breaker.call(_do_request)
 
 
+@with_retry(LLM_RETRY)
 def _ask_anthropic(system_prompt: str, user_prompt: str, model: str) -> str:
     """Send a messages request to the Anthropic-compatible cloud API."""
-    # Prefer the real API key, but fall back to the auth token for proxies that use it.
-    api_key = ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN
-    if not api_key:
-        raise RuntimeError("Neither ANTHROPIC_API_KEY nor ANTHROPIC_AUTH_TOKEN is set; cannot use cloud provider.")
+    breaker = get_anthropic_breaker()
+    
+    def _do_request():
+        # Prefer the real API key, but fall back to the auth token for proxies that use it.
+        api_key = ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN
+        if not api_key:
+            raise RuntimeError("Neither ANTHROPIC_API_KEY nor ANTHROPIC_AUTH_TOKEN is set; cannot use cloud provider.")
 
-    # If the caller left the Ollama default in place, substitute the configured cloud model.
-    model_id = model if model and model != "llama3" else DEFAULT_CLOUD_MODEL
+        # If the caller left the Ollama default in place, substitute the configured cloud model.
+        model_id = model if model and model != "llama3" else DEFAULT_CLOUD_MODEL
 
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-    body = {
-        "model": model_id,
-        "max_tokens": 1024,
-        "system": system_prompt,
-        "messages": [{"role": "user", "content": user_prompt}],
-        "temperature": 0.0,
-    }
-    resp = requests.post(
-        f"{ANTHROPIC_BASE_URL}/v1/messages",
-        headers=headers,
-        json=body,
-        timeout=120,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    content = data.get("content") or []
-    text_blocks = [block.get("text", "") for block in content if block.get("type") == "text"]
-    if not text_blocks:
-        raise ValueError("Anthropic response had no text content")
-    return text_blocks[0]
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        body = {
+            "model": model_id,
+            "max_tokens": 1024,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+            "temperature": 0.0,
+        }
+        resp = requests.post(
+            f"{ANTHROPIC_BASE_URL}/v1/messages",
+            headers=headers,
+            json=body,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        content = data.get("content") or []
+        text_blocks = [block.get("text", "") for block in content if block.get("type") == "text"]
+        if not text_blocks:
+            raise ValueError("Anthropic response had no text content")
+        return text_blocks[0]
+    
+    return breaker.call(_do_request)
 
 
 def _extract_json(raw: str) -> dict[str, Any]:

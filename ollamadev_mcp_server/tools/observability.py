@@ -6,12 +6,15 @@ from pathlib import Path
 from mcp.server import MCPServer
 
 from ollamadev_mcp_server.constants import WORKSPACE_ROOT
+from ollamadev_mcp_server.tool_decorator import tool_runtime
+from ollamadev_mcp_server.tool_runtime import ToolContext
 from ollamadev_mcp_server.tools.filesystem import _safe_path
 
 
 def register(mcp: MCPServer) -> None:
     @mcp.tool()
-    def get_task_transcript(task_id: int, format: str = "markdown") -> str:
+    @tool_runtime(name="get_task_transcript")
+    def get_task_transcript(ctx: ToolContext = None, task_id: int = 0, format: str = "markdown") -> str:
         """Read a previously exported task transcript for debugging a sprint phase.
 
         The Android app does not expose its Room database directly to the MCP server, so this
@@ -55,7 +58,7 @@ def register(mcp: MCPServer) -> None:
             except json.JSONDecodeError as exc:
                 return f"Transcript file is not valid JSON: {exc}"
             if format == "json":
-                return json.dumps(data, indent=2)
+                return data
             # Render as markdown
             if isinstance(data, list):
                 lines = [f"# Task {task_id} Transcript"]
@@ -70,5 +73,5 @@ def register(mcp: MCPServer) -> None:
 
         # Markdown file
         if format == "json":
-            return json.dumps({"markdown": text}, indent=2)
+            return {"markdown": text}
         return text

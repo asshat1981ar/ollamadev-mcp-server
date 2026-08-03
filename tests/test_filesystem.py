@@ -1,3 +1,4 @@
+import json
 """Tests for the filesystem tools."""
 
 import asyncio
@@ -27,7 +28,9 @@ def test_write_workspace_file_creates_file_and_parents():
             "content": "# Integration Test Output\n\nVerified: write_workspace_file lands on disk.",
         }))
         assert result.content
-        assert "Written" in result.content[0].text
+        response = json.loads(result.content[0].text)
+        assert response["success"]
+        assert "Successfully wrote" in response["data"]
         target = workspace / "store/integration/test_output.md"
         assert target.exists()
         assert "Verified: write_workspace_file lands on disk." in target.read_text(encoding="utf-8")
@@ -42,5 +45,6 @@ def test_list_workspace_files_includes_written_file():
             "content": "print('hello from integration test')",
         }))
         result = asyncio.run(mcp.call_tool("list_workspace_files", {"root": "store/integration"}))
-        files = result.content[0].text if result.content else ""
+        response = json.loads(result.content[0].text)
+        files = response["data"] if response["success"] else []
         assert "store/integration/listed_file.py" in files

@@ -10,6 +10,8 @@ from pathlib import Path
 from mcp.server import MCPServer
 
 from ollamadev_mcp_server.constants import STORE_DIR, WORKSPACE_ROOT
+from ollamadev_mcp_server.tool_decorator import tool_runtime
+from ollamadev_mcp_server.tool_runtime import ToolContext
 
 _MEMORY_FILE = STORE_DIR / "agent_memory.json"
 
@@ -34,7 +36,8 @@ def _save_memory(data: dict[str, str]) -> None:
 
 def register(mcp: MCPServer) -> None:
     @mcp.tool()
-    def store_memory(key: str, value: str) -> str:
+    @tool_runtime(name="store_memory")
+    def store_memory(ctx: ToolContext = None, key: str = "", value: str = "") -> str:
         """Store a short memory / fact for the agent swarm.
 
         Args:
@@ -50,7 +53,8 @@ def register(mcp: MCPServer) -> None:
         return f"Stored memory '{key}' ({len(value)} chars)."
 
     @mcp.tool()
-    def recall_memory(key: str) -> str:
+    @tool_runtime(name="recall_memory")
+    def recall_memory(ctx: ToolContext = None, key: str = "") -> str:
         """Recall a previously stored memory.
 
         Args:
@@ -63,7 +67,8 @@ def register(mcp: MCPServer) -> None:
         return data.get(key, "Memory not found.")
 
     @mcp.tool()
-    def list_memories() -> str:
+    @tool_runtime(name="list_memories")
+    def list_memories(ctx: ToolContext = None) -> str:
         """List all stored memory keys and short previews.
 
         Returns:
@@ -81,7 +86,8 @@ def register(mcp: MCPServer) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
-    def clear_memory(key: str) -> str:
+    @tool_runtime(name="clear_memory")
+    def clear_memory(ctx: ToolContext = None, key: str = "") -> str:
         """Delete a single stored memory entry.
 
         Args:

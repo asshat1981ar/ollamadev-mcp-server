@@ -19,16 +19,22 @@ def _make_server() -> MCPServer:
 def test_ping_returns_json():
     mcp = _make_server()
     result = asyncio.run(mcp.call_tool("ping", {}))
-    data = json.loads(result.content[0].text)
-    assert data["name"] == "OllamaDev Toolbox"
-    assert "version" in data
-    assert data["uptime_seconds"] >= 0
+    response = json.loads(result.content[0].text)
+    # New unified response format
+    assert response["success"] is True
+    assert response["tool"] == "ping"
+    assert "duration_ms" in response
+    assert response["data"]["name"] == "OllamaDev Toolbox"
+    assert "version" in response["data"]
+    assert response["data"]["uptime_seconds"] >= 0
 
 
 def test_describe_tools_all():
     mcp = _make_server()
     result = asyncio.run(mcp.call_tool("describe_tools", {}))
-    text = result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    text = response["data"]
     assert "list_workspace_files" in text
     assert "run_gradle_tests" in text
     assert "get_server_settings" in text
@@ -37,7 +43,9 @@ def test_describe_tools_all():
 def test_describe_tools_category_filter():
     mcp = _make_server()
     result = asyncio.run(mcp.call_tool("describe_tools", {"category": "verification"}))
-    text = result.content[0].text
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    text = response["data"]
     assert "run_gradle_tests" in text
     assert "list_workspace_files" not in text
 
@@ -83,7 +91,9 @@ def test_suggest_next_action_success(monkeypatch):
             {"goal": "make tests pass", "phase": "VERIFICATION", "context": "", "model": "test", "provider": "ollama"},
         )
     )
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = json.loads(response["data"]) if isinstance(response["data"], str) else response["data"]
     assert data["tool_name"] == "run_gradle_tests"
     assert data["confidence"] == 0.9
 
@@ -101,6 +111,8 @@ def test_suggest_next_action_connection_error(monkeypatch):
             {"goal": "x", "phase": "DESIGN", "context": "", "model": "test", "provider": "ollama"},
         )
     )
-    data = json.loads(result.content[0].text)
+    response = json.loads(result.content[0].text)
+    assert response["success"] is True
+    data = json.loads(response["data"]) if isinstance(response["data"], str) else response["data"]
     assert data["tool_name"] is None
     assert "not reachable" in data["reasoning"]
