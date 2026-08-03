@@ -9,6 +9,8 @@ from pathlib import Path
 from mcp.server import MCPServer
 
 from ollamadev_mcp_server.constants import WORKSPACE_ROOT
+from ollamadev_mcp_server.tool_decorator import tool_runtime
+from ollamadev_mcp_server.tool_runtime import ToolContext
 
 
 def _run(cmd: list[str], timeout: int = 300) -> str:
@@ -254,7 +256,8 @@ def register(mcp: MCPServer) -> None:
         return f"[Gradle lint exit {result.returncode} — {status}]\n\n{output}"
 
     @mcp.tool()
-    def parse_test_results(gradle_output: str) -> str:
+    @tool_runtime(name="parse_test_results")
+    def parse_test_results(ctx: ToolContext = None, gradle_output: str = "") -> str:
         """Parse raw Gradle test output into a structured summary.
 
         Args:
@@ -295,14 +298,13 @@ def register(mcp: MCPServer) -> None:
                     unresolved.append(stripped)
 
         summary = f"{passed}/{total} tests passed, {failed} failed"
-        result = {
+        return {
             "passed": passed,
             "failed": failed,
             "total": total,
             "unresolved": unresolved,
             "summary": summary,
         }
-        return json.dumps(result, indent=2)
 
     @mcp.tool()
     def run_ktlint_detekt(command: str = "ktlint", args: list[str] | None = None) -> str:
@@ -318,7 +320,8 @@ def register(mcp: MCPServer) -> None:
         return _run_linter(command, args)
 
     @mcp.tool()
-    def get_build_config() -> str:
+    @tool_runtime(name="get_build_config")
+    def get_build_config(ctx: ToolContext = None) -> str:
         """Read key Gradle build files and return a structured summary.
 
         Returns:
@@ -337,7 +340,8 @@ def register(mcp: MCPServer) -> None:
         return "\n\n".join(sections)
 
     @mcp.tool(annotations={"destructiveHint": False, "readOnlyHint": True})
-    def run_ktlint(args: list[str] | None = None) -> str:
+    @tool_runtime(name="run_ktlint")
+    def run_ktlint(ctx: ToolContext = None, args: list[str] | None = None) -> str:
         """Run ktlint over Kotlin sources (default: app/src/main/java).
 
         Args:
@@ -349,7 +353,8 @@ def register(mcp: MCPServer) -> None:
         return _run_linter("ktlint", args)
 
     @mcp.tool(annotations={"destructiveHint": False, "readOnlyHint": True})
-    def run_detekt(args: list[str] | None = None) -> str:
+    @tool_runtime(name="run_detekt")
+    def run_detekt(ctx: ToolContext = None, args: list[str] | None = None) -> str:
         """Run detekt over Kotlin sources (default: --input app/src/main/java).
 
         Tries the 'detekt-cli' binary first, then 'detekt'.
@@ -363,7 +368,9 @@ def register(mcp: MCPServer) -> None:
         return _run_detekt(args)
 
     @mcp.tool(annotations={"destructiveHint": False, "readOnlyHint": True})
+    @tool_runtime(name="parse_test_results_xml")
     def parse_test_results_xml(
+        ctx: ToolContext = None,
         results_dir: str = "app/build/test-results/testDebugUnitTest",
         raw_xml: str = "",
     ) -> str:
@@ -379,22 +386,19 @@ def register(mcp: MCPServer) -> None:
         """
         if raw_xml.strip():
             try:
-                return json.dumps(_parse_junit_xml_text(raw_xml, "raw_xml"), indent=2)
+                return _parse_junit_xml_text(raw_xml, "raw_xml")
             except ET.ParseError as exc:
-                return json.dumps({"error": f"Invalid XML: {exc}"}, indent=2)
+                return {"error": f"Invalid XML: {exc}"}
 
         base = WORKSPACE_ROOT / results_dir
         if not base.is_dir():
-            return json.dumps(
-                {
-                    "error": f"Test-results directory not found: {results_dir}",
-                    "hint": "Run run_gradle_tests first to generate JUnit XML reports.",
-                },
-                indent=2,
-            )
+            return {
+                "error": f"Test-results directory not found: {results_dir}",
+                "hint": "Run run_gradle_tests first to generate JUnit XML reports.",
+            }
         files = sorted(base.glob("*.xml"))
         if not files:
-            return json.dumps({"error": f"No JUnit XML files found in {results_dir}"}, indent=2)
+            return {"error": f"No JUnit XML files found in {results_dir}"}
 
         parsed = []
         for f in files:
@@ -412,10 +416,11 @@ def register(mcp: MCPServer) -> None:
                 totals["errors"] += entry["errors"]
                 totals["skipped"] += entry["skipped"]
         totals["summary"] = f"{totals['passed']}/{totals['total']} tests passed across {totals['files']} file(s)"
-        return json.dumps({"totals": totals, "files": parsed}, indent=2)
+        return {"totals": totals, "files": parsed}
 
     @mcp.tool(annotations={"destructiveHint": False, "readOnlyHint": True})
-    def get_coverage_summary(results_dir: str = "app/build/reports/jacoco/jacocoTestReport") -> str:
+    @tool_runtime(name="get_coverage_summary")
+    def get_coverage_summary(ctx: ToolContext = None, results_dir: str = "app/build/reports/jacoco/jacocoTestReport") -> str:
         """Read a JaCoCo XML coverage report and return structured coverage percentages.
 
         Args:
@@ -429,24 +434,21 @@ def register(mcp: MCPServer) -> None:
         base = WORKSPACE_ROOT / results_dir
         files = sorted(base.glob("*.xml")) if base.is_dir() else []
         if not files:
-            return json.dumps(
-                {
-                    "error": f"No JaCoCo XML report found in {results_dir}",
-                    "hint": "Enable JaCoCo (apply plugin 'jacoco' + a jacocoTestReport task in app/build.gradle.kts), "
-                            "then run ':app:testDebugUnitTest :app:jacocoTestReport'.",
-                },
-                indent=2,
-            )
+            return {
+                "error": f"No JaCoCo XML report found in {results_dir}",
+                "hint": "Enable JaCoCo (apply plugin 'jacoco' + a jacocoTestReport task in app/build.gradle.kts), "
+                        "then run ':app:testDebugUnitTest :app:jacocoTestReport'.",
+            }
         parsed = []
         for f in files:
             try:
                 parsed.append(_parse_jacoco_xml_text(f.read_text(encoding="utf-8"), str(f.relative_to(WORKSPACE_ROOT))))
             except ET.ParseError as exc:
                 parsed.append({"source": str(f.relative_to(WORKSPACE_ROOT)), "error": str(exc)})
-        return json.dumps(parsed[0] if len(parsed) == 1 else parsed, indent=2)
+        return parsed[0] if len(parsed) == 1 else parsed
 
     @mcp.tool(annotations={"destructiveHint": False, "readOnlyHint": False})
-    def run_instrumented_tests(module: str = "app", variant: str = "Debug", test_filter: str = "") -> str:
+    def run_instrumented_tests(module: str = "app", variant: str = "Debug", test_filter: str = "") -> dict:
         """Run Android instrumented tests (connectedAndroidTest) on a connected device/emulator.
 
         Requires adb on PATH and an attached device; otherwise returns a structured JSON message.
@@ -461,22 +463,16 @@ def register(mcp: MCPServer) -> None:
         """
         adb = subprocess.run(["which", "adb"], capture_output=True, text=True).stdout.strip()
         if not adb:
-            return json.dumps(
-                {"status": "NO_DEVICE", "detail": "adb not found on PATH; cannot run instrumented tests."},
-                indent=2,
-            )
+            return json.dumps({"status": "NO_DEVICE", "detail": "adb not found on PATH; cannot run instrumented tests."}, indent=2)
 
         devices_out = subprocess.run([adb, "devices"], capture_output=True, text=True, timeout=30).stdout
         connected = [ln for ln in devices_out.splitlines() if "\tdevice" in ln]
         if not connected:
-            return json.dumps(
-                {
-                    "status": "NO_DEVICE",
-                    "detail": "No connected Android device/emulator (adb devices returned none). "
-                              "Start an emulator or plug in a device, then retry.",
-                },
-                indent=2,
-            )
+            return json.dumps({
+                "status": "NO_DEVICE",
+                "detail": "No connected Android device/emulator (adb devices returned none). "
+                          "Start an emulator or plug in a device, then retry.",
+            }, indent=2)
 
         gradlew = WORKSPACE_ROOT / "gradlew"
         if not gradlew.exists():
@@ -489,16 +485,15 @@ def register(mcp: MCPServer) -> None:
         try:
             result = subprocess.run(cmd, cwd=str(WORKSPACE_ROOT), capture_output=True, text=True, timeout=900)
         except subprocess.TimeoutExpired:
-            return json.dumps({"status": "TIMEOUT", "task": task}, indent=2)
+            return {"status": "TIMEOUT", "task": task}
         output = result.stdout + result.stderr
         status = "PASSED" if result.returncode == 0 else "FAILED"
-        return json.dumps(
-            {"status": status, "returncode": result.returncode, "task": task, "output": output[-8000:]},
-            indent=2,
-        )
+        return {"status": status, "returncode": result.returncode, "task": task, "output": output[-8000:]}
 
     @mcp.tool(annotations={"destructiveHint": False, "readOnlyHint": False})
+    @tool_runtime(name="run_screenshot_tests")
     def run_screenshot_tests(
+        ctx: ToolContext = None,
         module: str = "app",
         mode: str = "record",
         test_filter: str = "com.example.ui.ScreenshotDriverTest",
@@ -520,7 +515,7 @@ def register(mcp: MCPServer) -> None:
             raise ValueError("mode must be 'record' or 'verify'")
         gradlew = WORKSPACE_ROOT / "gradlew"
         if not gradlew.exists():
-            return json.dumps({"status": "FAILED", "error": "gradlew not found in workspace root"}, indent=2)
+            return {"status": "FAILED", "error": "gradlew not found in workspace root"}
 
         task = f":{module}:{mode}RoborazziDebug"
         cmd = _gradle_cmd(gradlew, task, "--no-daemon")
@@ -529,10 +524,7 @@ def register(mcp: MCPServer) -> None:
         try:
             result = subprocess.run(cmd, cwd=str(WORKSPACE_ROOT), capture_output=True, text=True, timeout=900)
         except subprocess.TimeoutExpired:
-            return json.dumps({"status": "TIMEOUT", "task": task}, indent=2)
+            return {"status": "TIMEOUT", "task": task}
         output = result.stdout + result.stderr
         status = "PASSED" if result.returncode == 0 else "FAILED"
-        return json.dumps(
-            {"status": status, "returncode": result.returncode, "task": task, "output": output[-8000:]},
-            indent=2,
-        )
+        return {"status": status, "returncode": result.returncode, "task": task, "output": output[-8000:]}
