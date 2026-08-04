@@ -121,7 +121,7 @@ class TestRegisterDefaultModules:
         registry.clear()
         register_default_modules()
         modules = registry.get_modules()
-        assert len(modules) == 12  # 12 default modules
+        assert len(modules) == 13  # 13 default modules
 
     def test_default_modules_have_correct_names(self):
         registry = get_registry()
@@ -141,6 +141,7 @@ class TestRegisterDefaultModules:
             "observability",
             "sandbox",
             "settings",
+            "cloudflare_computer",
         }
         assert module_names == expected
 

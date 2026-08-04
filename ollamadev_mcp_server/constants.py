@@ -43,6 +43,14 @@ DEFAULT_CLOUD_MODEL = (
     or "claude-sonnet-5-20251001"
 )
 
+# Cloudflare Computer integration — a remote, SQLite-backed virtual workspace
+# (Durable Object) reached through its HTTP surface. The computer repo's
+# examples expose: PUT/GET  /c/<name>/file/workspace/<path>  and
+# POST /c/<name>/exec  with {"command", "cwd"}.
+CF_COMPUTER_BASE_URL = _resolve("cf_computer_base_url", "http://127.0.0.1:8787").rstrip("/")
+CF_COMPUTER_WORKSPACE = _resolve("cf_computer_workspace", "compute")
+CF_COMPUTER_TIMEOUT = int(_resolve("cf_computer_timeout", "30"))
+
 STORE_DIR = WORKSPACE_ROOT / "store"
 
 # Phase order for sprint artifacts

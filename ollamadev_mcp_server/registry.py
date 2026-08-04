@@ -163,6 +163,7 @@ def register_default_modules() -> None:
     """
     from ollamadev_mcp_server.tools import (
         build,
+        cloudflare_computer,
         code,
         dependencies,
         filesystem,
@@ -191,5 +192,11 @@ def register_default_modules() -> None:
     registry.register_module("observability", observability, "debugging", "Task transcript reading")
     registry.register_module("sandbox", sandbox, "execution", "Pytest, Gradle, shell execution")
     registry.register_module("settings", settings, "configuration", "Server settings management")
+    registry.register_module(
+        "cloudflare_computer",
+        cloudflare_computer,
+        "cloud_computer",
+        "Cloudflare Computer virtual workspace (read/write/list/exec/git over HTTP)",
+    )
 
     logger.info("Registered %d default tool modules", len(registry.get_modules()))

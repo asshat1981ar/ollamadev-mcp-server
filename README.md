@@ -154,6 +154,34 @@ Override Ollama URL: `OLLAMA_URL=http://localhost:11434 uv run serve`
 | `describe_tools(category="all")` | Return a markdown catalog of tools |
 | `suggest_next_action(goal, phase, context, model)` | Ask Ollama which tool to call next |
 
+### Cloudflare Computer (remote virtual workspace)
+
+OllamaDev agents can also operate a [Cloudflare Computer](https://github.com/cloudflare/computer)
+workspace — a persistent, SQLite-backed virtual filesystem running in a
+Durable Object with pluggable execution backends — through the HTTP surface
+that the computer repo's example Workers expose
+(`PUT/GET /c/<name>/file/workspace/<path>`, `POST /c/<name>/exec`). These
+tools are a thin HTTP client; if no Cloudflare Computer instance is reachable
+they return a helpful error.
+
+Configure with env (or persisted settings: `cf_computer_base_url`,
+`cf_computer_workspace`, `cf_computer_timeout`):
+
+```bash
+export CF_COMPUTER_BASE_URL=http://127.0.0.1:8787   # Worker hosting the DO
+export CF_COMPUTER_WORKSPACE=compute                # DO name / workspace id
+uv run serve
+```
+
+| Tool | Description | Safety |
+|---|---|---|
+| `cf_workspace_status()` | Connectivity + config snapshot for the Cloudflare Computer surface | read-only |
+| `cf_list_workspace(path="workspace")` | List a directory via the exec surface | read-only (via exec) |
+| `cf_read_workspace_file(path)` | Read a file from the virtual workspace | read-only |
+| `cf_write_workspace_file(path, content)` | Write/overwrite a file in the virtual workspace | additive |
+| `cf_exec_workspace(command, cwd="/workspace")` | Run a shell command in the workspace backend | **destructiveHint** (approval gate) |
+| `cf_git_workspace(args="status", cwd="/workspace")` | Run `git` (isomorphic-git or container git) in the workspace | **destructiveHint** (commit/push) |
+
 ### Server settings
 
 | Tool | Description | Phase |
@@ -173,7 +201,8 @@ environment variable  >  persisted settings file  >  code default
 
 Allowed keys: `workspace_root`, `ollama_url`, `ollama_api_key`,
 `anthropic_api_key`, `anthropic_auth_token`, `anthropic_base_url`,
-`default_cloud_model`. Secret values are never echoed back in full — `get_server_settings`
+`default_cloud_model`, `cf_computer_base_url`, `cf_computer_workspace`,
+`cf_computer_timeout`. Secret values are never echoed back in full — `get_server_settings`
 reports them masked (`***`) with `*_set` flags.
 
 ```bash
