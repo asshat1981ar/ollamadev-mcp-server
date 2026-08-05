@@ -160,6 +160,10 @@ class CircuitBreaker:
                     )
                 self._state = CircuitState.OPEN
 
+    def record_failure(self) -> None:
+        """Record a failure from outside a guarded ``call()`` (e.g. a 5xx response)."""
+        self._on_failure()
+
     def reset(self) -> None:
         """Manually reset the circuit breaker to CLOSED state."""
         with self._lock:

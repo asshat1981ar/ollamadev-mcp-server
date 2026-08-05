@@ -36,6 +36,10 @@ AUDITABLE_OPERATIONS: frozenset[str] = frozenset({
     "reset_server_settings",
     "store_memory",
     "clear_memory",
+    # Cloudflare Computer (remote workspace) mutations
+    "cf_write_workspace_file",
+    "cf_exec_workspace",
+    "cf_git_workspace",
 })
 
 # Keys whose values should be masked in audit entries

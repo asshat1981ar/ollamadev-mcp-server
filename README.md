@@ -162,7 +162,27 @@ Durable Object with pluggable execution backends — through the HTTP surface
 that the computer repo's example Workers expose
 (`PUT/GET /c/<name>/file/workspace/<path>`, `POST /c/<name>/exec`). These
 tools are a thin HTTP client; if no Cloudflare Computer instance is reachable
-they return a helpful error.
+they return a helpful, structured error.
+
+**Production hardening** built into the module:
+
+- **Config validation** — base URL must be `http(s)`, workspace name must match
+  `[A-Za-z0-9_-]{1,64}`, timeouts are bounded (1–300s). Bad env is a clear
+  `CONFIG_ERROR`, not a crash.
+- **Resilient transport** — connection-pooled `requests.Session`, exponential
+  backoff on transient network errors, bounded retries on `502/503/504`, and a
+  **circuit breaker** (`cloudflare-computer`) that trips on a dead endpoint so a
+  broken backend can't be hammered from every agent turn.
+- **Input safety** — paths are normalized and reject `..`, control characters,
+  and over-long/deep input; `git` args are restricted to known subcommands and
+  refuse shell metacharacters (`;`, `&&`, `|`, `` ` ``, `$(`, ...).
+- **Output caps** — file reads capped at 2 MiB (`max_read_bytes`) and exec
+  stdout/stderr at 256 KiB (`max_exec_output_bytes`), each with a `truncated`
+  flag; binary files round-trip via base64 (`binary=True` / `content_b64=`).
+- **Audit + approval** — `cf_write_workspace_file`, `cf_exec_workspace`, and
+  mutating `cf_git_workspace` calls are written to `store/audit.log`;
+  `cf_exec_workspace`/`cf_git_workspace` are `destructiveHint=true` so
+  OllamaDev's MCP risk gate requires human approval first.
 
 Configure with env (or persisted settings: `cf_computer_base_url`,
 `cf_computer_workspace`, `cf_computer_timeout`):
@@ -175,12 +195,12 @@ uv run serve
 
 | Tool | Description | Safety |
 |---|---|---|
-| `cf_workspace_status()` | Connectivity + config snapshot for the Cloudflare Computer surface | read-only |
+| `cf_workspace_status()` | Connectivity + config + circuit-breaker health | read-only |
 | `cf_list_workspace(path="workspace")` | List a directory via the exec surface | read-only (via exec) |
-| `cf_read_workspace_file(path)` | Read a file from the virtual workspace | read-only |
-| `cf_write_workspace_file(path, content)` | Write/overwrite a file in the virtual workspace | additive |
-| `cf_exec_workspace(command, cwd="/workspace")` | Run a shell command in the workspace backend | **destructiveHint** (approval gate) |
-| `cf_git_workspace(args="status", cwd="/workspace")` | Run `git` (isomorphic-git or container git) in the workspace | **destructiveHint** (commit/push) |
+| `cf_read_workspace_file(path, binary=False)` | Read a file (base64 for binary) with size cap | read-only |
+| `cf_write_workspace_file(path, content=, content_b64=)` | Write/overwrite a file | additive + audited |
+| `cf_exec_workspace(command=, argv=, cwd="/workspace", timeout_ms=30000)` | Run a shell command / quoted argv | **destructiveHint** + audited |
+| `cf_git_workspace(args="status", cwd="/workspace")` | Run `git` (validated subcommands) | **destructiveHint** if mutating + audited |
 
 ### Server settings
 

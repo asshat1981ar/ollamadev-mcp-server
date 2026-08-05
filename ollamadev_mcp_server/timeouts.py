@@ -58,6 +58,13 @@ TOOL_TIMEOUTS: dict[str, int] = {
     # Sandbox
     "run_pytest": DEFAULT_SHELL_TIMEOUT,
     "run_shell_command": DEFAULT_SHELL_TIMEOUT,
+    # Cloudflare Computer (remote virtual workspace)
+    "cf_workspace_status": 15,
+    "cf_read_workspace_file": 60,
+    "cf_write_workspace_file": 60,
+    "cf_list_workspace": 60,
+    "cf_exec_workspace": 120,
+    "cf_git_workspace": 120,
     # LLM
     "suggest_next_action": DEFAULT_LLM_TIMEOUT,
     # Autonomous
